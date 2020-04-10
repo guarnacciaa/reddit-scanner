@@ -24,6 +24,7 @@ reddit_subreddit_name = '<Insert Subreddit Name (i.e.: all)'
 reddit_search_words = ['<Insert String 1>', '<Insert String 2>']
 
 # Gmail Configuration
+gmail_enabled = True
 gmail_server = 'smtp.gmail.com'
 gmail_port = 465
 gmail_user = 'your_user@gmail.com'
