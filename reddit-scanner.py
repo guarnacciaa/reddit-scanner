@@ -6,11 +6,12 @@ import ssl
 import sys
 import praw
 import smtplib
+import requests
 from datetime import datetime, timezone
 
 
 # RedditScanner Configuration
-version = '1.0'
+version = '1.1'
 storage_file = 'reddit-scanner.db'
 storage_retention = 1296000
 
@@ -30,6 +31,11 @@ gmail_password = 'password'
 gmail_sender = 'RedditScanner <user@gmail.com>'
 gmail_receiver = '<Insert Recipient Mail>'
 gmail_subject = '[RedditScanner] We got some matched posts'
+
+# Telegram Configuration
+telegram_enabled = True
+telegram_token = '<Insert Telegram Token>'
+telegram_id = '<Insert Telegram ID>'
 
 
 # Main
@@ -68,27 +74,31 @@ for submission in subreddit.new():
                 match[submission.id]['timestamp'] = submission.created_utc
                 match[submission.id]['title'] = re.sub(r'({})'.format(word), r'<b><font color="red">\1</font></b>',
                                                        submission.title, flags=re.I)
+                match[submission.id]['title'] = re.sub(
+                    u"\u2013", "-", match[submission.id]['title'])
                 match[submission.id]['url'] = submission.url
                 storage_hash[submission.id] = submission.created_utc
 
 if bool(match):
-    dump = ''
-    context = ssl.create_default_context()
+    if (gmail_enabled):
+        dump = ''
 
-    server = smtplib.SMTP_SSL()
-    server.connect(gmail_server, gmail_port)
-    server.ehlo()
-    server.login(gmail_user, gmail_password)
+        for reddit_id in match:
+            dump += '<ul><li>Timestamp: ' +\
+                str(datetime.fromtimestamp(
+                    match[reddit_id]['timestamp'])) + '</li>\n'
+            dump += '<li>ID: ' + reddit_id + '</li>\n'
+            dump += '<li>Title: ' + match[reddit_id]['title'] + '</li>\n'
+            dump += '<li>URL  : ' + match[reddit_id]['url'] + '</li></ul>\n\n'
 
-    for reddit_id in match:
-        dump += '<ul><li>Timestamp: ' +\
-            str(datetime.fromtimestamp(
-                match[reddit_id]['timestamp'])) + '</li>\n'
-        dump += '<li>ID: ' + reddit_id + '</li>\n'
-        dump += '<li>Title: ' + match[reddit_id]['title'] + '</li>\n'
-        dump += '<li>URL  : ' + match[reddit_id]['url'] + '</li></ul>\n\n'
+        context = ssl.create_default_context()
 
-    gmail_message = """From: """ + gmail_sender + """
+        server = smtplib.SMTP_SSL()
+        server.connect(gmail_server, gmail_port)
+        server.ehlo()
+        server.login(gmail_user, gmail_password)
+
+        gmail_message = """From: """ + gmail_sender + """
 To: """ + gmail_receiver + """
 MIME-Version: 1.0
 Content-type: text/html
@@ -98,21 +108,28 @@ Subject: """ + gmail_subject + """
 <h1>List of matches:</h1>
 <br />
 """ + dump
+        server.sendmail(gmail_sender, gmail_receiver, gmail_message)
 
-    server.sendmail(gmail_sender, gmail_receiver, gmail_message)
+        try:
+            storage = open(storage_file, "w")
 
-    try:
-        storage = open(storage_file, "w")
+            for item in storage_hash:
+                if int(storage_hash[item]) > (current_epoch - storage_retention):
+                    storage.write(
+                        item + ',' + str(int(storage_hash[item])) + '\n')
 
-        for item in storage_hash:
-            if int(storage_hash[item]) > (current_epoch - storage_retention):
-                storage.write(item + ',' + str(int(storage_hash[item])) + '\n')
+            storage.close()
+        except OSError as err:
+            print("OS error: {0}".format(err))
+        except ValueError:
+            print("Could not convert data to an integer.")
+        except:
+            print("Unexpected error:", sys.exc_info()[0])
+            raise
 
-        storage.close()
-    except OSError as err:
-        print("OS error: {0}".format(err))
-    except ValueError:
-        print("Could not convert data to an integer.")
-    except:
-        print("Unexpected error:", sys.exc_info()[0])
-        raise
+    if (telegram_enabled):
+        for reddit_id in match:
+            telegram_text = 'https://api.telegram.org/bot' + telegram_token + '/sendMessage?chat_id=' + \
+                telegram_id + '&parse_mode=Markdown&text=' + \
+                match[reddit_id]['url']
+            response = requests.get(telegram_text)
